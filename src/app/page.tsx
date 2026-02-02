@@ -51,8 +51,9 @@ export default function App() {
       setConflicts(foundConflicts);
       setStatus("ready");
     } catch (e) {
-      setError(`Parse error: ${e instanceof Error ? e.message : "Unknown error"}`);
+      setError(`Parse error: ${e instanceof Error ? e.message : "Unknown error"}. You can try uploading the PDF manually.`);
       setStatus("error");
+      setShowUpload(true);
     }
   }, []);
 
@@ -79,6 +80,7 @@ export default function App() {
     } catch (e) {
       setError(`Upload error: ${e instanceof Error ? e.message : "Unknown error"}`);
       setStatus("error");
+      setShowUpload(true);
     }
   }, [processBuffer]);
 

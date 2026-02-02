@@ -2,9 +2,10 @@
 
 import * as pdfjsLib from "pdfjs-dist";
 
-// Set the worker source
+// Configure PDF.js worker
 if (typeof window !== "undefined") {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+  // Use unpkg which has proper CORS headers and matches our version
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
 export async function fetchPdfFromCnatra(date: Date): Promise<ArrayBuffer> {
