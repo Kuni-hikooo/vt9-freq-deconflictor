@@ -1,6 +1,6 @@
 "use client";
 
-import { DeconflictResult } from "@/lib/types";
+import { DeconflictResult, Flight } from "@/lib/types";
 
 interface AssignmentTableProps {
   results: DeconflictResult[];
@@ -18,6 +18,30 @@ function formatLineNumbers(res: DeconflictResult): string {
   }
   const lineNums = res.flight.lines.map((line) => line.lineNum);
   return lineNums.join(", ");
+}
+
+/**
+ * Formats the full callsign display from a flight's individual lines.
+ * Examples:
+ *   - BT1 with lines BT11, BT12 → "BT 11/12"
+ *   - BT8 with lines BT81, BT82, BT83, BT84 → "BT 81/82/83/84"
+ *   - Single BT11 → "BT 11"
+ */
+function formatFullCallsign(flight: Flight): string {
+  if (!flight.lines || flight.lines.length === 0) {
+    return flight.callsign;
+  }
+
+  // Extract the 2-digit position from each callsign (e.g., BT11 → "11")
+  const positions = flight.lines.map((line) => line.callsign.slice(2));
+  const uniquePositions = [...new Set(positions)].sort();
+
+  if (uniquePositions.length === 0) {
+    return flight.callsign;
+  }
+
+  // Format as "BT 11/12" or "BT 81/82/83/84"
+  return `BT ${uniquePositions.join("/")}`;
 }
 
 export function AssignmentTable({ results }: AssignmentTableProps) {
@@ -71,7 +95,7 @@ export function AssignmentTable({ results }: AssignmentTableProps) {
               }}
             >
               <td style={tdStyle}>{formatLineNumbers(res)}</td>
-              <td style={tdStyle}>{res.flight.callsign}</td>
+              <td style={tdStyle}>{formatFullCallsign(res.flight)}</td>
               <td style={tdStyle}>{res.flight.eventType}</td>
               <td style={tdStyle}>{formatTime(res.flight.scheduledTO)}</td>
               <td style={tdStyle}>{formatTime(res.flight.scheduledLand)}</td>

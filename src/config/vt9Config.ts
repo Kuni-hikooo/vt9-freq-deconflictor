@@ -90,7 +90,7 @@ export const EVENT_TYPES: Record<string, EventTypeConfig> = {
     name: "TAC",
     blockUnits: 2,
     blockUnitsMin: 1,
-    preferredAirspace: ["area4", "moa2"],
+    preferredAirspace: ["moa2", "area4"],
     needsTacan: true,
     needsCm: 1,
     tacanPairs: 1,

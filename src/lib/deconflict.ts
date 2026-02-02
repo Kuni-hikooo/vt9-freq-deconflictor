@@ -26,13 +26,17 @@ function toMinutes(hhmm: number): number {
   return Math.floor(hhmm / 100) * 60 + (hhmm % 100);
 }
 
-/** Do two flights' active windows overlap? (T/O through Land) */
+/** 15-minute overlap tolerance - flights landing within 15 min of another's T/O won't conflict */
+const OVERLAP_BUFFER_MINUTES = 15;
+
+/** Do two flights' active windows overlap? (T/O through Land, with 15-min buffer) */
 function overlaps(a: Flight, b: Flight): boolean {
   const aStart = toMinutes(a.scheduledTO);
   const aEnd = toMinutes(a.scheduledLand);
   const bStart = toMinutes(b.scheduledTO);
   const bEnd = toMinutes(b.scheduledLand);
-  return aStart < bEnd && bStart < aEnd;
+  // Allow 15 minutes of overlap before considering flights conflicting
+  return aStart < (bEnd - OVERLAP_BUFFER_MINUTES) && bStart < (aEnd - OVERLAP_BUFFER_MINUTES);
 }
 
 /** Get all flights that overlap with a given flight */
@@ -99,11 +103,22 @@ function allocateAirspace(
     };
   }
 
+  // Check if any overlapping flight is BFM or FTX (for TAC priority logic)
+  const hasBfmOrFtxOverlap = overlapping.some(
+    (f) => f.eventType === "BFM" || f.eventType === "FTX"
+  );
+
+  // For TAC: dynamically determine preferred airspace
+  // TAC should prefer MOA2 by default, but switch to Area 4 if BFM/FTX overlaps
+  let effectivePreferred = config.preferredAirspace;
+  if (flight.eventType === "TAC") {
+    effectivePreferred = hasBfmOrFtxOverlap ? ["area4", "moa2"] : ["moa2", "area4"];
+  }
+
   // Assign to preferred airspace if available, otherwise alternate
-  const preferred = config.preferredAirspace;
   let assigned: "area4" | "moa2" | null = null;
 
-  for (const pref of preferred) {
+  for (const pref of effectivePreferred) {
     const used = pref === "area4" ? area4Used : moa2Used;
     const max = pref === "area4" ? AIRSPACE_CONFIG.area4.blockUnits : AIRSPACE_CONFIG.moa2.blockUnits;
     if (used + needed <= max) {
@@ -114,7 +129,7 @@ function allocateAirspace(
 
   // If preferred is full, try the other one
   if (!assigned) {
-    const alt = preferred[0] === "area4" ? "moa2" : "area4";
+    const alt = effectivePreferred[0] === "area4" ? "moa2" : "area4";
     const altUsed = alt === "area4" ? area4Used : moa2Used;
     const altMax = alt === "area4" ? AIRSPACE_CONFIG.area4.blockUnits : AIRSPACE_CONFIG.moa2.blockUnits;
     if (altUsed + needed <= altMax) {

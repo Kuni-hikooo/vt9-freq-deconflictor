@@ -52,6 +52,31 @@ function parseFlightTime(s: string): number {
 }
 
 /**
+ * Expands a combined callsign like "BT21/22" into individual callsigns ["BT21", "BT22"].
+ * Also handles longer combinations like "BT81/82/83/84" → ["BT81", "BT82", "BT83", "BT84"].
+ */
+function expandCombinedCallsign(raw: string): string[] {
+  if (!raw.includes("/")) return [raw];
+
+  // "BT21/22" → base="BT2", positions=["1", "22"]
+  // "BT81/82/83/84" → base="BT8", positions=["1", "82", "83", "84"]
+  const base = raw.slice(0, 3); // "BT2" or "BT8"
+  const remainder = raw.slice(3); // "1/22" or "1/82/83/84"
+  const positions = remainder.split("/");
+
+  return positions.map((pos) => {
+    // Handle both "1" (single digit) and "22" (two digit) formats
+    // If it's a two-digit number, use it directly; if single digit, prefix with base
+    if (pos.length === 2) {
+      return "BT" + pos;
+    } else {
+      // Single digit: combine with base's last digit
+      return base + pos;
+    }
+  });
+}
+
+/**
  * Main parser: takes the full concatenated PDF text and returns an array of ScheduleLines.
  *
  * Strategy: We look for the pattern of a VT-9 flight line, which has:
@@ -72,12 +97,13 @@ export function parseScheduleText(pdfPages: string[]): ScheduleLine[] {
   // This regex matches the core numeric/callsign pattern of a flight line.
   // Groups: lineNum, callsign, briefTime, toTime, landTime
   // After landTime we grab everything up to the next flight time pattern (e.g. "1.3")
+  // Updated to handle combined callsigns like "BT21/22" or "BT81/82/83/84"
   const linePattern =
-    /(\d{3,4})\s+(BT\d{2})\s+(\d{4})\s+(\d{4})\s+(\d{4})\s+([\s\S]*?)\s+(\d+\.\d)/g;
+    /(\d{3,4})\s+(BT\d{2}(?:\/\d{2})*)\s+(\d{4})\s+(\d{4})\s+(\d{4})\s+([\s\S]*?)\s+(\d+\.\d)/g;
 
   let match;
   while ((match = linePattern.exec(fullText)) !== null) {
-    const [, lineNumStr, callsign, briefStr, toStr, landStr, middleChunk, ftStr] =
+    const [, lineNumStr, rawCallsign, briefStr, toStr, landStr, middleChunk, ftStr] =
       match;
 
     const briefTime = parseTime(briefStr);
@@ -96,17 +122,22 @@ export function parseScheduleText(pdfPages: string[]): ScheduleLine[] {
     const afterMatch = fullText.slice(match.index + match[0].length, match.index + match[0].length + 40);
     const remarks = extractRemarks(afterMatch);
 
-    lines.push({
-      lineNum: parseInt(lineNumStr, 10),
-      callsign,
-      briefTime,
-      scheduledTO,
-      scheduledLand,
-      eventType,
-      flightTime,
-      remarks,
-      rawText: match[0],
-    });
+    // Expand combined callsigns (e.g., "BT21/22" → ["BT21", "BT22"])
+    const callsigns = expandCombinedCallsign(rawCallsign);
+
+    for (const callsign of callsigns) {
+      lines.push({
+        lineNum: parseInt(lineNumStr, 10),
+        callsign,
+        briefTime,
+        scheduledTO,
+        scheduledLand,
+        eventType,
+        flightTime,
+        remarks,
+        rawText: match[0],
+      });
+    }
   }
 
   return lines;
