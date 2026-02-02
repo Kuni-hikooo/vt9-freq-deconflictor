@@ -1,9 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import { DeconflictResult } from "@/lib/types";
 
 interface TimelineProps {
   results: DeconflictResult[];
+}
+
+interface TooltipState {
+  visible: boolean;
+  x: number;
+  y: number;
+  result: DeconflictResult | null;
 }
 
 function formatTime(hhmm: number): string {
@@ -13,6 +21,13 @@ function formatTime(hhmm: number): string {
 }
 
 export function Timeline({ results }: TimelineProps) {
+  const [tooltip, setTooltip] = useState<TooltipState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    result: null,
+  });
+
   const minTime = Math.min(...results.map((r) => r.flight.scheduledTO));
   const maxTime = Math.max(...results.map((r) => r.flight.scheduledLand));
 
@@ -22,6 +37,26 @@ export function Timeline({ results }: TimelineProps) {
   const startMin = toMinutes(minTime);
   const endMin = toMinutes(maxTime);
   const range = endMin - startMin || 60;
+
+  // Calculate dynamic container height based on flight count
+  const containerHeight = Math.max(80, 16 + results.length * 24 + 18);
+
+  const handleMouseEnter = (
+    e: React.MouseEvent<HTMLDivElement>,
+    res: DeconflictResult
+  ) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTooltip({
+      visible: true,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+      result: res,
+    });
+  };
+
+  const handleMouseLeave = () => {
+    setTooltip({ visible: false, x: 0, y: 0, result: null });
+  };
 
   return (
     <div style={{ marginBottom: 32 }}>
@@ -43,7 +78,7 @@ export function Timeline({ results }: TimelineProps) {
           borderRadius: 6,
           padding: 16,
           position: "relative",
-          minHeight: 80,
+          height: containerHeight,
         }}
       >
         {results.map((res, i) => {
@@ -58,6 +93,8 @@ export function Timeline({ results }: TimelineProps) {
           return (
             <div
               key={res.flight.id}
+              onMouseEnter={(e) => handleMouseEnter(e, res)}
+              onMouseLeave={handleMouseLeave}
               style={{
                 position: "absolute",
                 left: `${left}%`,
@@ -76,13 +113,72 @@ export function Timeline({ results }: TimelineProps) {
                 fontWeight: 600,
                 overflow: "hidden",
                 whiteSpace: "nowrap",
+                cursor: "pointer",
+                transition: "transform 0.1s, box-shadow 0.1s",
               }}
-              title={`${res.flight.callsign} ${formatTime(res.flight.scheduledTO)}-${formatTime(res.flight.scheduledLand)}`}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = "scale(1.05)";
+                e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.3)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = "scale(1)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
             >
               {res.flight.callsign}
             </div>
           );
         })}
+
+        {/* Tooltip */}
+        {tooltip.visible && tooltip.result && (
+          <div
+            style={{
+              position: "fixed",
+              left: tooltip.x,
+              top: tooltip.y,
+              transform: "translate(-50%, -100%)",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "8px 12px",
+              zIndex: 1000,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+              pointerEvents: "none",
+              minWidth: 160,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                color: "var(--text-primary)",
+                fontWeight: 600,
+                marginBottom: 6,
+              }}
+            >
+              {tooltip.result.flight.callsign}
+            </div>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--text-muted)",
+                lineHeight: 1.6,
+              }}
+            >
+              <div>T/O: {formatTime(tooltip.result.flight.scheduledTO)}</div>
+              <div>Land: {formatTime(tooltip.result.flight.scheduledLand)}</div>
+              <div>Event: {tooltip.result.flight.eventType}</div>
+              <div>
+                Airspace:{" "}
+                {tooltip.result.airspace
+                  ? tooltip.result.airspace.physicalBlock
+                  : "-"}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <div
         style={{

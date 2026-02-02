@@ -70,15 +70,20 @@ function allocateAirspace(
     if (res.airspace.airspace === "moa2") moa2Used += res.airspace.blockUnits;
   }
 
-  const totalUsed = area4Used + moa2Used;
-  const totalAvailable = AIRSPACE_CONFIG.totalBlockUnits - totalUsed;
+  const area4Available = AIRSPACE_CONFIG.area4.blockUnits - area4Used;
+  const moa2Available = AIRSPACE_CONFIG.moa2.blockUnits - moa2Used;
+  const totalAvailable = area4Available + moa2Available;
   let needed = config.blockUnits;
   let flexedDown = false;
 
-  // TAC can flex down
-  if (config.blockUnitsMin && needed > totalAvailable && config.blockUnitsMin <= totalAvailable) {
-    needed = config.blockUnitsMin;
-    flexedDown = true;
+  // For flex-capable events (TAC), only flex down if NO single airspace can fit full requirement
+  if (config.blockUnitsMin && config.blockUnitsMin < config.blockUnits) {
+    const canAnyFitFull = Math.max(area4Available, moa2Available) >= config.blockUnits;
+
+    if (!canAnyFitFull && config.blockUnitsMin <= Math.max(area4Available, moa2Available)) {
+      needed = config.blockUnitsMin;
+      flexedDown = true;
+    }
   }
 
   if (needed > totalAvailable) {

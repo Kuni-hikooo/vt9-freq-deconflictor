@@ -12,6 +12,14 @@ function formatTime(hhmm: number): string {
   return `${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}`;
 }
 
+function formatLineNumbers(res: DeconflictResult): string {
+  if (!res.flight.lines || res.flight.lines.length === 0) {
+    return "-";
+  }
+  const lineNums = res.flight.lines.map((line) => line.lineNum);
+  return lineNums.join(", ");
+}
+
 export function AssignmentTable({ results }: AssignmentTableProps) {
   return (
     <div style={{ marginBottom: 32, overflowX: "auto" }}>
@@ -41,6 +49,7 @@ export function AssignmentTable({ results }: AssignmentTableProps) {
               borderBottom: "1px solid var(--border)",
             }}
           >
+            <th style={thStyle}>LINE</th>
             <th style={thStyle}>CALLSIGN</th>
             <th style={thStyle}>EVENT</th>
             <th style={thStyle}>T/O</th>
@@ -61,6 +70,7 @@ export function AssignmentTable({ results }: AssignmentTableProps) {
                   res.conflicts.length > 0 ? "var(--red-bg)" : "transparent",
               }}
             >
+              <td style={tdStyle}>{formatLineNumbers(res)}</td>
               <td style={tdStyle}>{res.flight.callsign}</td>
               <td style={tdStyle}>{res.flight.eventType}</td>
               <td style={tdStyle}>{formatTime(res.flight.scheduledTO)}</td>
