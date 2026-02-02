@@ -1,6 +1,5 @@
 "use client";
 
-import { buildCnataraUrl } from "@/config/vt9Config";
 import * as pdfjsLib from "pdfjs-dist";
 
 // Set the worker source
@@ -9,11 +8,19 @@ if (typeof window !== "undefined") {
 }
 
 export async function fetchPdfFromCnatra(date: Date): Promise<ArrayBuffer> {
-  const url = buildCnataraUrl(date);
-  const response = await fetch(url);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const dateStr = `${y}-${m}-${d}`;
+
+  // Use our API route to proxy the request (avoids CORS)
+  const response = await fetch(`/api/fetch-pdf?date=${dateStr}`);
+
   if (!response.ok) {
-    throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to fetch PDF: ${response.status} ${response.statusText}`);
   }
+
   return response.arrayBuffer();
 }
 
