@@ -5,6 +5,7 @@ export interface ScheduleLine {
   scheduledTO: number;
   scheduledLand: number;
   eventType: string;
+  fullEventCode: string; // Full code like "TR4301", "TAC42S1"
   flightTime: number;
   remarks: string;
   rawText: string;
@@ -15,6 +16,7 @@ export interface Flight {
   callsign: string;
   lines: ScheduleLine[];
   eventType: string;
+  fullEventCode: string; // Full code like "TR4301", "TAC42S1"
   briefTime: number;
   scheduledTO: number;
   scheduledLand: number;

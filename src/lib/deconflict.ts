@@ -48,6 +48,12 @@ function getOverlapping(flight: Flight, allFlights: Flight[]): Flight[] {
 // AIRSPACE ALLOCATION
 // ============================================================
 
+/** Check if flight is a TR43xx or TR44xx event (no airspace needed) */
+function isTrNoAirspace(flight: Flight): boolean {
+  const code = flight.fullEventCode.toUpperCase();
+  return code.startsWith("TR43") || code.startsWith("TR44");
+}
+
 function allocateAirspace(
   flight: Flight,
   allResults: DeconflictResult[],
@@ -55,6 +61,11 @@ function allocateAirspace(
 ): { assignment: AirspaceAssignment | null; conflicts: Conflict[] } {
   const config = EVENT_TYPES[flight.eventType];
   if (!config || config.blockUnits === 0) {
+    return { assignment: null, conflicts: [] };
+  }
+
+  // TR43xx and TR44xx events don't need airspace
+  if (isTrNoAirspace(flight)) {
     return { assignment: null, conflicts: [] };
   }
 
@@ -77,64 +88,67 @@ function allocateAirspace(
   const area4Available = AIRSPACE_CONFIG.area4.blockUnits - area4Used;
   const moa2Available = AIRSPACE_CONFIG.moa2.blockUnits - moa2Used;
   const totalAvailable = area4Available + moa2Available;
-  let needed = config.blockUnits;
-  let flexedDown = false;
-
-  // For flex-capable events (TAC), only flex down if NO single airspace can fit full requirement
-  if (config.blockUnitsMin && config.blockUnitsMin < config.blockUnits) {
-    const canAnyFitFull = Math.max(area4Available, moa2Available) >= config.blockUnits;
-
-    if (!canAnyFitFull && config.blockUnitsMin <= Math.max(area4Available, moa2Available)) {
-      needed = config.blockUnitsMin;
-      flexedDown = true;
-    }
-  }
-
-  if (needed > totalAvailable) {
-    return {
-      assignment: null,
-      conflicts: [
-        {
-          type: "airspace_full",
-          message: `Airspace full for ${flight.id} (${flight.eventType}): needs ${config.blockUnits} block units, only ${totalAvailable} available. Area 4: ${area4Used}/4 used, MOA 2: ${moa2Used}/4 used.`,
-          involvedFlightIds: [flight.id, ...overlapping.map((f) => f.id)],
-        },
-      ],
-    };
-  }
 
   // Check if any overlapping flight is BFM or FTX (for TAC priority logic)
   const hasBfmOrFtxOverlap = overlapping.some(
     (f) => f.eventType === "BFM" || f.eventType === "FTX"
   );
 
-  // For TAC: dynamically determine preferred airspace
-  // TAC should prefer MOA2 by default, but switch to Area 4 if BFM/FTX overlaps
-  let effectivePreferred = config.preferredAirspace;
+  // Determine airspace priority:
+  // - If event explicitly prefers MOA2 first (e.g., BFM, FTX, DTF), use MOA2 first
+  // - For TAC: prefer MOA2 unless BFM/FTX overlaps, then prefer A4
+  // - Otherwise: fill A4 first before spilling to MOA2
+  let effectivePreferred: ("area4" | "moa2")[];
+
+  const prefersMoa2First = config.preferredAirspace[0] === "moa2";
+
   if (flight.eventType === "TAC") {
+    // TAC: prefer MOA2 normally, but switch to A4 if BFM/FTX overlaps
     effectivePreferred = hasBfmOrFtxOverlap ? ["area4", "moa2"] : ["moa2", "area4"];
+  } else if (prefersMoa2First) {
+    // Events that explicitly prefer MOA2 (BFM, FTX, DTF, SEM)
+    effectivePreferred = ["moa2", "area4"];
+  } else {
+    // All other events: fill A4 first before MOA2
+    effectivePreferred = ["area4", "moa2"];
   }
 
-  // Assign to preferred airspace if available, otherwise alternate
+  // Try to assign airspace with full block units first, then flex down if needed
+  // For TAC: try preferred with 2, then alternate with 2, then preferred with 1, then alternate with 1
   let assigned: "area4" | "moa2" | null = null;
+  let needed = config.blockUnits;
+  let flexedDown = false;
 
-  for (const pref of effectivePreferred) {
-    const used = pref === "area4" ? area4Used : moa2Used;
-    const max = pref === "area4" ? AIRSPACE_CONFIG.area4.blockUnits : AIRSPACE_CONFIG.moa2.blockUnits;
-    if (used + needed <= max) {
-      assigned = pref;
-      break;
+  const canFlex = config.blockUnitsMin && config.blockUnitsMin < config.blockUnits;
+  const blockOptions = canFlex ? [config.blockUnits, config.blockUnitsMin] : [config.blockUnits];
+
+  // Try each block size, starting with full requirement
+  for (const tryBlocks of blockOptions) {
+    if (assigned) break;
+
+    // Try preferred airspace first
+    for (const pref of effectivePreferred) {
+      const available = pref === "area4" ? area4Available : moa2Available;
+      if (available >= tryBlocks) {
+        assigned = pref;
+        needed = tryBlocks;
+        flexedDown = tryBlocks < config.blockUnits;
+        break;
+      }
     }
   }
 
-  // If preferred is full, try the other one
   if (!assigned) {
-    const alt = effectivePreferred[0] === "area4" ? "moa2" : "area4";
-    const altUsed = alt === "area4" ? area4Used : moa2Used;
-    const altMax = alt === "area4" ? AIRSPACE_CONFIG.area4.blockUnits : AIRSPACE_CONFIG.moa2.blockUnits;
-    if (altUsed + needed <= altMax) {
-      assigned = alt;
-    }
+    return {
+      assignment: null,
+      conflicts: [
+        {
+          type: "airspace_full",
+          message: `Airspace full for ${flight.id} (${flight.eventType}): needs ${config.blockUnitsMin || config.blockUnits}+ block units, only ${Math.max(area4Available, moa2Available)} available in any single airspace. Area 4: ${area4Used}/4 used, MOA 2: ${moa2Used}/4 used.`,
+          involvedFlightIds: [flight.id, ...overlapping.map((f) => f.id)],
+        },
+      ],
+    };
   }
 
   if (!assigned) {

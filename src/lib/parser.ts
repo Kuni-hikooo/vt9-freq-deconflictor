@@ -32,10 +32,13 @@ function extractEventType(raw: string): string | null {
 
 /**
  * Parses a 4-digit HHMM time string into an integer.
+ * Handles spaces from PDF extraction: "06 15" → 615, "0815" → 815
  * Returns NaN if not a valid time.
  */
 function parseTime(s: string): number {
-  const n = parseInt(s, 10);
+  // Remove any spaces from PDF extraction
+  const cleaned = s.replace(/\s+/g, "");
+  const n = parseInt(cleaned, 10);
   if (isNaN(n)) return NaN;
   const hh = Math.floor(n / 100);
   const mm = n % 100;
@@ -52,16 +55,28 @@ function parseFlightTime(s: string): number {
 }
 
 /**
+ * Normalizes a callsign by removing all spaces.
+ * "BT 3 2" → "BT32", "BT11" → "BT11"
+ */
+function normalizeCallsign(raw: string): string {
+  return raw.replace(/\s+/g, "");
+}
+
+/**
  * Expands a combined callsign like "BT21/22" into individual callsigns ["BT21", "BT22"].
  * Also handles longer combinations like "BT81/82/83/84" → ["BT81", "BT82", "BT83", "BT84"].
+ * Handles spaces from PDF extraction: "BT 21 / 22" → ["BT21", "BT22"]
  */
 function expandCombinedCallsign(raw: string): string[] {
-  if (!raw.includes("/")) return [raw];
+  // First normalize by removing all spaces
+  const normalized = normalizeCallsign(raw);
+
+  if (!normalized.includes("/")) return [normalized];
 
   // "BT21/22" → base="BT2", positions=["1", "22"]
   // "BT81/82/83/84" → base="BT8", positions=["1", "82", "83", "84"]
-  const base = raw.slice(0, 3); // "BT2" or "BT8"
-  const remainder = raw.slice(3); // "1/22" or "1/82/83/84"
+  const base = normalized.slice(0, 3); // "BT2" or "BT8"
+  const remainder = normalized.slice(3); // "1/22" or "1/82/83/84"
   const positions = remainder.split("/");
 
   return positions.map((pos) => {
@@ -91,15 +106,18 @@ function expandCombinedCallsign(raw: string): string[] {
  * We use a regex to pull these out.
  */
 export function parseScheduleText(pdfPages: string[]): ScheduleLine[] {
-  const fullText = pdfPages.join(" ");
+  // Join pages with newlines (not spaces) to preserve row structure
+  const fullText = pdfPages.join("\n");
   const lines: ScheduleLine[] = [];
 
   // This regex matches the core numeric/callsign pattern of a flight line.
   // Groups: lineNum, callsign, briefTime, toTime, landTime
   // After landTime we grab everything up to the next flight time pattern (e.g. "1.3")
   // Updated to handle combined callsigns like "BT21/22" or "BT81/82/83/84"
+  // Also handles spaces in callsigns from PDF extraction: "BT 32", "BT 5 1", etc.
+  // Also handles spaces in times from PDF extraction: "06 15" instead of "0615"
   const linePattern =
-    /(\d{3,4})\s+(BT\d{2}(?:\/\d{2})*)\s+(\d{4})\s+(\d{4})\s+(\d{4})\s+([\s\S]*?)\s+(\d+\.\d)/g;
+    /(\d{3,4})\s+(BT\s*\d\s*\d(?:\s*\/\s*\d\s*\d)*)\s+(\d{2}\s*\d{2})\s+(\d{2}\s*\d{2})\s+(\d{2}\s*\d{2})\s+([\s\S]*?)\s+(\d+\.\d)/g;
 
   let match;
   while ((match = linePattern.exec(fullText)) !== null) {
@@ -115,8 +133,10 @@ export function parseScheduleText(pdfPages: string[]): ScheduleLine[] {
 
     // The middleChunk contains instructor, student, event type, and other fields
     // mixed together. We need to find the event type in there.
-    const eventType = extractEventFromChunk(middleChunk);
-    if (!eventType) continue; // Skip lines we can't identify an event for
+    const eventResult = extractEventFromChunk(middleChunk);
+    if (!eventResult) continue; // Skip lines we can't identify an event for
+
+    const { eventType, fullCode: fullEventCode } = eventResult;
 
     // Remarks come after the flight time — grab a short window
     const afterMatch = fullText.slice(match.index + match[0].length, match.index + match[0].length + 40);
@@ -133,6 +153,7 @@ export function parseScheduleText(pdfPages: string[]): ScheduleLine[] {
         scheduledTO,
         scheduledLand,
         eventType,
+        fullEventCode,
         flightTime,
         remarks,
         rawText: match[0],
@@ -144,22 +165,23 @@ export function parseScheduleText(pdfPages: string[]): ScheduleLine[] {
 }
 
 /**
- * Extracts the event type from the middle chunk of a parsed line.
+ * Extracts the event type and full event code from the middle chunk of a parsed line.
  * The chunk contains names and the event string mixed together.
  * We look for any token that starts with a known event type.
+ * Returns { eventType, fullCode } or null if not found.
  */
-function extractEventFromChunk(chunk: string): string | null {
+function extractEventFromChunk(chunk: string): { eventType: string; fullCode: string } | null {
   const tokens = chunk.split(/\s+/);
   for (const token of tokens) {
     const evt = extractEventType(token);
-    if (evt) return evt;
+    if (evt) return { eventType: evt, fullCode: token.toUpperCase() };
   }
   // Second pass: check for "LEAD" or "PLAT" preceded by an event type
   // e.g. "FRM LEAD" — FRM is a separate token
   for (let i = 0; i < tokens.length - 1; i++) {
     if (tokens[i + 1] === "LEAD" || tokens[i + 1] === "PLAT") {
       const evt = extractEventType(tokens[i]);
-      if (evt) return evt;
+      if (evt) return { eventType: evt, fullCode: tokens[i].toUpperCase() + " " + tokens[i + 1].toUpperCase() };
     }
   }
   return null;
@@ -236,12 +258,14 @@ export function groupIntoFlights(lines: ScheduleLine[]): Flight[] {
       l.rawText.includes("LEAD")
     );
     const eventType = leadLine?.eventType ?? groupLines[0].eventType;
+    const fullEventCode = leadLine?.fullEventCode ?? groupLines[0].fullEventCode;
 
     flights.push({
       id: key,
       callsign: key.split("-")[0],
       lines: groupLines,
       eventType,
+      fullEventCode,
       briefTime,
       scheduledTO,
       scheduledLand,

@@ -20,6 +20,24 @@ function formatTime(hhmm: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+// Color scheme for airspace assignments
+const AIRSPACE_COLORS = {
+  area4: { bg: "#2563eb", text: "#ffffff" },      // Blue for Area 4
+  moa2: { bg: "#7c3aed", text: "#ffffff" },       // Purple for MOA 2
+  none: { bg: "#4b5563", text: "#e5e7eb" },       // Gray for no airspace
+  conflict: { bg: "var(--red-dim)", text: "var(--red)" },
+};
+
+function getFlightColors(res: DeconflictResult): { bg: string; text: string } {
+  if (res.conflicts.length > 0) {
+    return AIRSPACE_COLORS.conflict;
+  }
+  if (!res.airspace) {
+    return AIRSPACE_COLORS.none;
+  }
+  return AIRSPACE_COLORS[res.airspace.airspace];
+}
+
 export function Timeline({ results }: TimelineProps) {
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false,
@@ -40,6 +58,18 @@ export function Timeline({ results }: TimelineProps) {
 
   // Calculate dynamic container height based on flight count
   const containerHeight = Math.max(80, 16 + results.length * 24 + 18);
+
+  // Generate hour markers for grid lines
+  const startHour = Math.floor(minTime / 100);
+  const endHour = Math.ceil(maxTime / 100);
+  const hourMarkers: number[] = [];
+  for (let h = startHour; h <= endHour; h++) {
+    const hhmm = h * 100;
+    const mins = toMinutes(hhmm);
+    if (mins >= startMin && mins <= endMin) {
+      hourMarkers.push(hhmm);
+    }
+  }
 
   const handleMouseEnter = (
     e: React.MouseEvent<HTMLDivElement>,
@@ -81,6 +111,27 @@ export function Timeline({ results }: TimelineProps) {
           height: containerHeight,
         }}
       >
+        {/* Hour grid lines */}
+        {hourMarkers.map((hhmm) => {
+          const leftPos = ((toMinutes(hhmm) - startMin) / range) * 100;
+          return (
+            <div
+              key={`grid-${hhmm}`}
+              style={{
+                position: "absolute",
+                left: `${leftPos}%`,
+                top: 0,
+                bottom: 0,
+                width: 1,
+                background: "var(--border)",
+                opacity: 0.5,
+                pointerEvents: "none",
+              }}
+            />
+          );
+        })}
+
+        {/* Flight bars */}
         {results.map((res, i) => {
           const left =
             ((toMinutes(res.flight.scheduledTO) - startMin) / range) * 100;
@@ -89,6 +140,7 @@ export function Timeline({ results }: TimelineProps) {
               toMinutes(res.flight.scheduledTO)) /
               range) *
             100;
+          const colors = getFlightColors(res);
 
           return (
             <div
@@ -101,15 +153,14 @@ export function Timeline({ results }: TimelineProps) {
                 width: `${Math.max(width, 2)}%`,
                 top: 16 + i * 24,
                 height: 18,
-                background:
-                  res.conflicts.length > 0 ? "var(--red-dim)" : "var(--accent)",
+                background: colors.bg,
                 borderRadius: 3,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 fontSize: 10,
                 fontFamily: "var(--font-mono)",
-                color: res.conflicts.length > 0 ? "var(--red)" : "#0a0e14",
+                color: colors.text,
                 fontWeight: 600,
                 overflow: "hidden",
                 whiteSpace: "nowrap",
@@ -125,7 +176,7 @@ export function Timeline({ results }: TimelineProps) {
                 e.currentTarget.style.boxShadow = "none";
               }}
             >
-              {res.flight.callsign}
+              {res.flight.eventType}
             </div>
           );
         })}
@@ -180,18 +231,56 @@ export function Timeline({ results }: TimelineProps) {
           </div>
         )}
       </div>
+      {/* Time labels with hour markers */}
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
+          position: "relative",
           marginTop: 8,
+          height: 16,
           fontSize: 10,
           fontFamily: "var(--font-mono)",
           color: "var(--text-muted)",
         }}
       >
-        <span>{formatTime(minTime)}</span>
-        <span>{formatTime(maxTime)}</span>
+        {hourMarkers.map((hhmm) => {
+          const leftPos = ((toMinutes(hhmm) - startMin) / range) * 100;
+          return (
+            <span
+              key={`label-${hhmm}`}
+              style={{
+                position: "absolute",
+                left: `${leftPos}%`,
+                transform: "translateX(-50%)",
+              }}
+            >
+              {formatTime(hhmm)}
+            </span>
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          marginTop: 12,
+          fontSize: 10,
+          fontFamily: "var(--font-mono)",
+          color: "var(--text-muted)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 12, height: 12, background: AIRSPACE_COLORS.area4.bg, borderRadius: 2 }} />
+          <span>Area 4</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 12, height: 12, background: AIRSPACE_COLORS.moa2.bg, borderRadius: 2 }} />
+          <span>MOA 2</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 12, height: 12, background: AIRSPACE_COLORS.none.bg, borderRadius: 2 }} />
+          <span>No Airspace</span>
+        </div>
       </div>
     </div>
   );

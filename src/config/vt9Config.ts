@@ -31,7 +31,7 @@ export const AIRSPACE_CONFIG = {
   moa2: {
     label: "MOA 2",
     blockUnits: 4, // math units
-    physicalBlocks: ["MOA2-A", "MOA2-B"], // real display blocks (each = 2 units)
+    physicalBlocks: ["MOA2-E", "MOA2-W"], // real display blocks (each = 2 units)
     physicalBlocksExtreme: ["MOA2-A", "MOA2-B", "MOA2-C"], // 3-way split extreme case
   },
 };
@@ -91,6 +91,14 @@ export const EVENT_TYPES: Record<string, EventTypeConfig> = {
     blockUnits: 2,
     blockUnitsMin: 1,
     preferredAirspace: ["moa2", "area4"],
+    needsTacan: true,
+    needsCm: 1,
+    tacanPairs: 1,
+  },
+  TAM: {
+    name: "TAM",
+    blockUnits: 0,
+    preferredAirspace: [],
     needsTacan: true,
     needsCm: 1,
     tacanPairs: 1,
